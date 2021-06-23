@@ -1,0 +1,10 @@
+apiVersion: paas.example.com/v1
+kind: Box
+metadata:
+  name: box-sample
+spec:
+  runtime: php
+  gitURL: github.com/abc/xyz
+  port: 8080
+  healthCheckPath: /healthz
+

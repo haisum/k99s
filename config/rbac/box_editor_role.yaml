@@ -1,0 +1,24 @@
+# permissions for end users to edit boxes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: box-editor-role
+rules:
+- apiGroups:
+  - paas.example.com
+  resources:
+  - boxes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - paas.example.com
+  resources:
+  - boxes/status
+  verbs:
+  - get
