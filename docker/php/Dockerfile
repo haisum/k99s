@@ -8,5 +8,5 @@ RUN docker-php-ext-configure mysqli && \
 EXPOSE 80
 
 ENTRYPOINT mkdir tmp && git clone ${GIT_URL} tmp && \
-            cp -r tmp/${SUBPATH} /var/www/html/ && rm -rf tmp \
-            docker-php-entrypoint
+    cp -r tmp/${SUBPATH}/* /var/www/html/ && rm -rf tmp && \
+    docker-php-entrypoint apache2-foreground
