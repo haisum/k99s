@@ -1,3 +1,6 @@
+<h1>Welcome to <?php echo getenv("APP_URL"); ?></h1><br/>
+
+<p>Here is the list of tables in your database:</p> <br/>
 <?php
 $servername = getenv("DB_HOST");
 $username = getenv("DB_USER");
