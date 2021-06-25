@@ -10,7 +10,10 @@ spec:
   bootstrapSQL: |
     CREATE TABLE php_user(
       id int not null PRIMARY KEY AUTO_INCREMENT
-    )
+    );
+    CREATE TABLE account(
+      id int not null PRIMARY KEY AUTO_INCREMENT
+    );
 ---
 apiVersion: paas.example.com/v1
 kind: Box
@@ -24,5 +27,8 @@ spec:
   bootstrapSQL: |
     CREATE TABLE go_user(
       id int not null PRIMARY KEY AUTO_INCREMENT
-    )
+    );
+    CREATE TABLE account(
+      id int not null PRIMARY KEY AUTO_INCREMENT
+    );
 

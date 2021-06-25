@@ -37,7 +37,7 @@ mirrors:
 ```bash
 k3d registry create registry.localhost --port=5000
 k3d cluster create --agents=2  --registry-config registries.yaml  --registry-use k3d-registry.localhost:5000 \
-    -p 8443:443@loadbalancer -p 8080:80@loadbalancer
+    -p 8443:443@loadbalancer -p 8088:80@loadbalancer
 ```
 
 4. Build and push runtime images for php and go:
@@ -70,6 +70,6 @@ Do one of these:
 
 Put this in `/etc/hosts`:
 
-`127.0.0.1 php-box.k99s-pass.com  go-box.k99s-pass.com`
+`127.0.0.1 php-box.k99s-paas.com  go-box.k99s-paas.com`
 
-Open http://php-box.k99s-pass.com:8080 in browser.
+Open http://php-box.k99s-paas.com:8088 in browser.
