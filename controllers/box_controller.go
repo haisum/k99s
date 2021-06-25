@@ -60,7 +60,7 @@ var (
 )
 
 const (
-	domain       = "k99s-pass.com"
+	domain       = "k99s-paas.com"
 	backendPort  = 3306
 	frontendPort = 80
 )
