@@ -33,11 +33,12 @@ type BoxSpec struct {
 	Runtime runtimes.RuntimeType `json:"runtime"`
 	Backend backends.BackendType `json:"backend"`
 	GitURL  string               `json:"gitURL"`
-	Port    int32                `json:"port"`
+
 	// +optional
-	HealthCheckPath string `json:"healthCheckPath,omitempty"`
-	// +optional
+	GitSubPath string `json:"gitSubPath"`
+
 	// Executed on fresh database at creation time
+	// +optional
 	BootstrapSQL string `json:"bootstrapSQL,omitempty"`
 }
 
@@ -46,16 +47,19 @@ type BoxStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Set to true if application responds with status code 200 on localhost:<port>/healthCheckPath
-	Healthy   bool        `json:"healthy,omitempty"`
+	Status    string      `json:"status,omitempty"`
 	StartedAt metav1.Time `json:"startedAt,omitempty"`
-	Errors    []string    `json:"errors,omitempty"`
+	URL       string      `json:"url,omitempty"`
+	Error     string      `json:"error,omitempty"`
 }
 
+// Box is the Schema for the boxes API
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-
-// Box is the Schema for the boxes API
+// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.status.url`
+// +kubebuilder:printcolumn:name="GitURL",type=string,JSONPath=`.spec.gitURL`
+// +kubebuilder:printcolumn:name="Runtime",type=string,JSONPath=`.spec.runtime`
+// +kubebuilder:printcolumn:name="Backend",type=string,JSONPath=`.spec.backend`
 type Box struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

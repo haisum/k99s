@@ -1,10 +1,28 @@
 apiVersion: paas.example.com/v1
 kind: Box
 metadata:
-  name: box-sample
+  name: php-box
 spec:
   runtime: php
-  gitURL: github.com/abc/xyz
-  port: 8080
-  healthCheckPath: /healthz
+  gitURL: https://github.com/haisum/k99s.git
+  gitSubPath: docker/php/src
+  backend: mysql
+  bootstrapSQL: |
+    CREATE TABLE php_user(
+      id int not null PRIMARY KEY AUTO_INCREMENT
+    )
+---
+apiVersion: paas.example.com/v1
+kind: Box
+metadata:
+  name: go-box
+spec:
+  runtime: go
+  gitURL: https://github.com/haisum/k99s.git
+  gitSubPath: docker/go/src
+  backend: mysql
+  bootstrapSQL: |
+    CREATE TABLE go_user(
+      id int not null PRIMARY KEY AUTO_INCREMENT
+    )
 

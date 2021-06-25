@@ -11,6 +11,7 @@ type phpRuntime struct {
 func (p phpRuntime) Deployment(image string) *appsv1.Deployment {
 	deployment := p.defaultRuntime.Deployment(image)
 	deployment.Spec.Template.Spec.Containers[0].Name = "php"
+	deployment.Spec.Template.ObjectMeta.Labels["type"] = "php"
 	return deployment
 }
 

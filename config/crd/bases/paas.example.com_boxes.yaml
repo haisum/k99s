@@ -16,7 +16,20 @@ spec:
     singular: box
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.url
+      name: URL
+      type: string
+    - jsonPath: .spec.gitURL
+      name: GitURL
+      type: string
+    - jsonPath: .spec.runtime
+      name: Runtime
+      type: string
+    - jsonPath: .spec.backend
+      name: Backend
+      type: string
+    name: v1
     schema:
       openAPIV3Schema:
         description: Box is the Schema for the boxes API
@@ -41,34 +54,28 @@ spec:
               bootstrapSQL:
                 description: Executed on fresh database at creation time
                 type: string
+              gitSubPath:
+                type: string
               gitURL:
                 type: string
-              healthCheckPath:
-                type: string
-              port:
-                format: int32
-                type: integer
               runtime:
                 type: string
             required:
             - backend
             - gitURL
-            - port
             - runtime
             type: object
           status:
             description: BoxStatus defines the observed state of Box
             properties:
-              errors:
-                items:
-                  type: string
-                type: array
-              healthy:
-                description: Set to true if application responds with status code
-                  200 on localhost:<port>/healthCheckPath
-                type: boolean
+              error:
+                type: string
               startedAt:
                 format: date-time
+                type: string
+              status:
+                type: string
+              url:
                 type: string
             type: object
         type: object

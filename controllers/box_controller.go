@@ -19,17 +19,21 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"math/rand"
-
 	"github.com/go-logr/logr"
 	paasv1 "github.com/haisum/k99s/api/v1"
 	"github.com/haisum/k99s/backends"
-	runtimes "github.com/haisum/k99s/runtimes"
+	"github.com/haisum/k99s/runtimes"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"math/rand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"time"
 )
 
 // BoxReconciler reconciles a Box object
@@ -39,17 +43,36 @@ type BoxReconciler struct {
 	Log    logr.Logger
 }
 
+type NullableObject struct {
+	IsSet  bool
+	Object client.Object
+}
+
+var (
+	alphanumericChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	backendImages     = map[backends.BackendType]string{
+		"mysql": "mysql:5.7",
+	}
+	runtimeImages = map[runtimes.RuntimeType]string{
+		"php": "k3d-registry.localhost:5000/php:1.0",
+		"go":  "k3d-registry.localhost:5000/go:1.0",
+	}
+)
+
 const (
-	domain          = "k99s-pass.com"
-	phpRuntimeImage = "abc.com"
-	goRuntimeImage  = "go.com"
-	appPort         = 8080
-	backendPort     = 3306
+	domain       = "k99s-pass.com"
+	backendPort  = 3306
+	frontendPort = 80
 )
 
 //+kubebuilder:rbac:groups=paas.example.com,resources=boxes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=paas.example.com,resources=boxes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=paas.example.com,resources=boxes/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="apps/v1",resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="networking/v1",resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -70,124 +93,160 @@ func (r *BoxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		// on deleted requests.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// create configmap
-	configmap := &corev1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-config", req.Name),
-			Namespace: req.Namespace,
-		},
-		Data: map[string]string{
-			"DB_HOST": fmt.Sprintf("%s-backend", req.Name),
-			"URL":     fmt.Sprintf("%s.%s", req.Name, domain),
-		},
+	if box.Status.Status == "" {
+		box.Status.Status = "Inactive"
 	}
-	if err := ctrl.SetControllerReference(&box, configmap, r.Scheme); err != nil {
+	if err := r.createConfigMapIfDoesNotExist(&box, ctx, req); err != nil {
+		box.Status.Error = err.Error()
+		log.Error(err, "unable to create configmap for Box")
 		return ctrl.Result{}, err
 	}
-	if err := r.Create(ctx, configmap); err != nil {
-		log.Error(err, "unable to create configmap for Box", "configmap", configmap)
-		return ctrl.Result{}, err
-	}
-	// create secret
-	secret := &corev1.Secret{
-		TypeMeta: metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-credentials", req.Name),
-			Namespace: req.Namespace,
-		},
-		StringData: map[string]string{
-			"DB_PASSWORD": randSeq(20),
-			"DB_USERNAME": randSeq(10),
-		},
-	}
-	if err := ctrl.SetControllerReference(&box, secret, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.Create(ctx, secret); err != nil {
+	if err := r.createSecretIfDoesNotExist(&box, ctx, req); err != nil {
+		box.Status.Error = err.Error()
 		log.Error(err, "unable to create secret for Box")
 		return ctrl.Result{}, err
 	}
 
-	// create backend resources
-	backend, err := backends.New(box.Spec.Backend, req.Name, req.Namespace)
+	// create backend Objects
+	backend, err := backends.New(box.Spec.Backend, req.Name, req.Namespace, req.Name+"-credentials")
 	if err != nil {
+		box.Status.Error = err.Error()
 		return ctrl.Result{}, err
 	}
 
 	// backend deployment
-	backendDeployment := backend.Deployment("")
-	if err := ctrl.SetControllerReference(&box, backendDeployment, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.Create(ctx, backendDeployment); err != nil {
-		log.Error(err, "unable to create Backend deployment for Box", "deployment", backendDeployment)
+	backendDeployment := backend.Deployment(backendImages[box.Spec.Backend])
+	if err := r.createOrUpdate(NullableObject{Object: backendDeployment}, &box, ctx); err != nil {
+		box.Status.Error = err.Error()
+		log.Error(err, "unable to create backend deployment for box", "deployment", backendDeployment)
 		return ctrl.Result{}, err
 	}
 
 	// backend service
-	backendService := backend.Service(3306)
-	if err := ctrl.SetControllerReference(&box, backendService, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.Create(ctx, backendService); err != nil {
+	backendService := backend.Service(backendPort)
+	if err := r.createOrUpdate(NullableObject{Object: backendService}, &box, ctx); err != nil {
+		box.Status.Error = err.Error()
 		log.Error(err, "unable to create Backend service for Box", "service", backendService)
 		return ctrl.Result{}, err
 	}
 
-	// create runtime Objects
-	runtime, err := runtimes.New(box.Spec.Runtime, req.Name, req.Namespace)
+	// create frontend Objects
+	frontend, err := runtimes.New(box.Spec.Runtime, req.Name, req.Namespace)
 	if err != nil {
+		box.Status.Error = err.Error()
 		return ctrl.Result{}, err
 	}
 
-	// runtime deployment
-	runtimeDeployment := runtime.Deployment("")
-	if err := ctrl.SetControllerReference(&box, runtimeDeployment, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.Create(ctx, runtimeDeployment); err != nil {
-		log.Error(err, "unable to create Deployment for Box", "deployment", runtimeDeployment)
-		return ctrl.Result{}, err
-	}
-
-	// runtime service
-	runTimeService := runtime.Service(8080)
-	if err := ctrl.SetControllerReference(&box, runTimeService, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.Create(ctx, runTimeService); err != nil {
-		log.Error(err, "unable to create Service for Box", "service", runTimeService)
+	// frontend deployment
+	deployment := frontend.Deployment(runtimeImages[box.Spec.Runtime])
+	if err := r.createOrUpdate(NullableObject{Object: deployment}, &box, ctx); err != nil {
+		box.Status.Error = err.Error()
+		log.Error(err, "unable to create Deployment for Box", "deployment", deployment)
 		return ctrl.Result{}, err
 	}
 
-	// runtime Ingress
-	runTimeIngress := runtime.Ingress("k99s-pass.com")
-	if err := ctrl.SetControllerReference(&box, runTimeIngress, r.Scheme); err != nil {
+	// frontend service
+	service := frontend.Service(frontendPort)
+	if err := r.createOrUpdate(NullableObject{Object: service}, &box, ctx); err != nil {
+		box.Status.Error = err.Error()
+		log.Error(err, "unable to create Service for Box", "service", service)
 		return ctrl.Result{}, err
 	}
-	if err := r.Create(ctx, runTimeIngress); err != nil {
-		log.Error(err, "unable to create Ingress for Box", "ingress", runTimeIngress)
+
+	// frontend Ingress
+	ingress := frontend.Ingress(domain)
+	if err := r.createOrUpdate(NullableObject{Object: ingress}, &box, ctx); err != nil {
+		box.Status.Error = err.Error()
+		log.Error(err, "unable to create Ingress for Box", "ingress", ingress)
 		return ctrl.Result{}, err
 	}
 
-	log.V(1).Info("created Deployment for Box", "deployment", runtimeDeployment)
-	return ctrl.Result{}, nil
-}
-
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-func randSeq(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
+	box.Status.Error = ""
+	box.Status.Status = "Active"
+	box.Status.URL = fmt.Sprintf("http://%s.%s", req.Name, domain)
+	r.Client.Status().Update(context.Background(), &box)
+	log.V(1).Info("reconciled Deployment for Box", "deployment", deployment)
+	return ctrl.Result{
+		RequeueAfter: time.Minute,
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *BoxReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&paasv1.Box{}).
+		Owns(&corev1.Service{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&networkingv1.Ingress{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}).
 		Complete(r)
+}
+
+func (r *BoxReconciler) createConfigMapIfDoesNotExist(box *paasv1.Box,
+	ctx context.Context, req ctrl.Request) error {
+	// create configmap
+	configmap := corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-config", req.Name),
+			Namespace: req.Namespace,
+		},
+		Data: map[string]string{
+			"DB_HOST":     fmt.Sprintf("%s-backend", req.Name),
+			"APP_URL":     fmt.Sprintf("%s.%s", req.Name, domain),
+			"GIT_SUBPATH": box.Spec.GitSubPath,
+			"GIT_URL":     box.Spec.GitURL,
+		},
+	}
+	return r.createOrUpdate(NullableObject{Object: &configmap}, box, ctx)
+}
+
+func (r *BoxReconciler) createSecretIfDoesNotExist(box *paasv1.Box,
+	ctx context.Context, req ctrl.Request) error {
+	secret := corev1.Secret{
+		TypeMeta: metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-credentials", req.Name),
+			Namespace: req.Namespace,
+		},
+		StringData: map[string]string{
+			"DB_PASSWORD":      randSeq(20),
+			"DB_USER":          randSeq(10),
+			"DB_BOOTSTRAP_SQL": box.Spec.BootstrapSQL,
+			"DB_NAME":          req.Name,
+		},
+	}
+	return r.createOrUpdate(NullableObject{Object: &secret}, box, ctx)
+}
+
+func (r *BoxReconciler) createOrUpdate(nullableObject NullableObject, box *paasv1.Box,
+	ctx context.Context) error {
+	namespacedName := types.NamespacedName{
+		Namespace: nullableObject.Object.GetNamespace(),
+		Name:      nullableObject.Object.GetName(),
+	}
+	nullableObject.IsSet = true
+	if err := r.Get(ctx, namespacedName, nullableObject.Object.DeepCopyObject().(client.Object)); err != nil {
+		if errors.IsNotFound(err) {
+			nullableObject.IsSet = false
+		} else {
+			return err
+		}
+	}
+	if nullableObject.IsSet {
+		return nil
+	}
+	if err := ctrl.SetControllerReference(box, nullableObject.Object, r.Scheme); err != nil {
+		return err
+	}
+	return r.Create(ctx, nullableObject.Object)
+}
+
+func randSeq(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = alphanumericChars[rand.Intn(len(alphanumericChars))]
+	}
+	return string(b)
 }

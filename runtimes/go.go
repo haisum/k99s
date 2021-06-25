@@ -11,6 +11,7 @@ type goRuntime struct {
 func (p goRuntime) Deployment(image string) *appsv1.Deployment {
 	deployment := p.defaultRuntime.Deployment(image)
 	deployment.Spec.Template.Spec.Containers[0].Name = "go"
+	deployment.Spec.Template.ObjectMeta.Labels["type"] = "go"
 	return deployment
 }
 
