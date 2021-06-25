@@ -1,6 +1,26 @@
 This is a simple Kubernetes operator built using kubebuilder. We are attempting to create a simple platform as a service
 offering where a user can provide URL to a git repo, and platform takes care of provisioning backend and database for it.
 
+A simple resource will look like this:
+
+```yaml
+apiVersion: paas.example.com/v1
+kind: Box
+metadata:
+  name: php-box
+spec:
+  runtime: php
+  gitURL: https://github.com/haisum/k99s.git
+  gitSubPath: docker/php/src
+  backend: mysql
+  bootstrapSQL: |
+    CREATE TABLE php_user(
+      id int not null PRIMARY KEY AUTO_INCREMENT
+    )
+```
+
+As of now, this project has implementation for php and go runtimes, and mysql backend.
+
 ## Cluster setup
 
 1. Install k3d.
